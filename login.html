@@ -47,40 +47,53 @@
     </div>
 
     <script>
-        // กุญแจของคุณ
         const SUPABASE_URL = 'https://ysvkdzbtxdibaeztqsht.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzdmtkemJ0eGRpYmFlenRxc2h0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1OTA3MDEsImV4cCI6MjA4ODE2NjcwMX0.BXNN_WU1LL61VaVHSw2AaN8Th6D1ZYx6H9azX75Ni1o';
         
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // ฟังก์ชันสร้าง URL สำหรับเด้งไปหน้า Dashboard ที่แม่นยำบน GitHub Pages
+        function getDashboardUrl() {
+            const pathArray = window.location.pathname.split('/');
+            // ถอดชื่อไฟล์ login.html ออกจาก Path (ถ้ามี)
+            if (pathArray[pathArray.length - 1].includes('.html')) {
+                pathArray.pop();
+            }
+            const basePath = pathArray.join('/');
+            const targetUrl = window.location.origin + basePath + '/userDashboard1.html';
+            // ป้องกันเครื่องหมาย / เบิ้ลกัน
+            return targetUrl.replace(/([^:]\/)\/+/g, "$1"); 
+        }
+
         async function loginWithProvider(providerName) {
             try {
-                // แทนที่คำว่า login.html เป็น userDashboard1.html (วิธีนี้ใช้บน GitHub Pages ได้ชัวร์ 100%)
-                const redirectUrl = window.location.href.replace('login.html', 'userDashboard1.html');
-
+                const targetUrl = getDashboardUrl();
                 const { data, error } = await supabase.auth.signInWithOAuth({
                     provider: providerName,
                     options: {
-                        redirectTo: redirectUrl
+                        redirectTo: targetUrl
                     }
                 });
-
                 if (error) throw error;
             } catch (error) {
                 console.error('Login error:', error.message);
-                alert('เกิดข้อผิดพลาด: ' + error.message);
+                alert('เกิดข้อผิดพลาดในการเข้าสู่ระบบ: \n' + error.message);
             }
         }
 
-        // ถ้า Login แล้วให้ข้ามไปหน้า Dashboard อัตโนมัติ
-        async function checkSession() {
-            const { data: { session } } = await supabase.auth.getSession();
+        // 🌟 หัวใจสำคัญ: ระบบดักจับเมื่อล็อกอินสำเร็จ (แก้ปัญหาหน้าเว็บนิ่ง)
+        supabase.auth.onAuthStateChange((event, session) => {
+            if (event === 'SIGNED_IN' || session) {
+                window.location.replace(getDashboardUrl());
+            }
+        });
+
+        // เช็กเผื่อไว้ตอนโหลดหน้าเว็บ
+        supabase.auth.getSession().then(({ data: { session } }) => {
             if (session) {
-                window.location.href = window.location.href.replace('login.html', 'userDashboard1.html');
+                window.location.replace(getDashboardUrl());
             }
-        }
-
-        checkSession();
+        });
     </script>
 </body>
 </html>

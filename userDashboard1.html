@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welfare Master - Smart Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- นำเข้า Supabase JS SDK -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Prompt', sans-serif; background-color: #f8fafc; transition: all 0.3s ease; }
+        .glass-header { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(8px); border-bottom: 1px solid #e2e8f0; }
+        
+        /* Modal Style */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); backdrop-filter: blur(5px); }
+        .modal-content { background: white; margin: 5% auto; padding: 2.5rem; border-radius: 2rem; width: 90%; max-width: 850px; }
+        
+        /* Senior Mode Core Overrides */
+        body.senior-mode { font-size: 120%; background-color: #ffffff; }
+        body.senior-mode h1 { font-size: 2.25rem !important; }
+        body.senior-mode .stat-card { border: 2px solid #cbd5e1; box-shadow: none; }
+        body.senior-mode .text-sm { font-size: 1.1rem; }
+        body.senior-mode .text-2xl { font-size: 2rem; font-weight: 700; }
+        
+        /* Hide classes specifically for modes */
+        body.senior-mode .hide-on-senior { display: none !important; }
+        body:not(.senior-mode) .show-on-senior { display: none !important; }
+        
+        body:not(.advanced-mode) .show-on-advanced { display: none !important; }
+        body.advanced-mode .show-on-advanced { animation: fadeIn 0.4s ease-out; }
+
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* Button Styling */
+        .persona-btn { transition: all 0.2s ease; border: 2px solid transparent; }
+        .persona-btn.active { background-color: #4F46E5; color: white; border-color: #4338CA; }
+        .persona-btn:not(.active) { background-color: transparent; color: #64748B; border-color: transparent; }
+        .persona-btn:not(.active):hover { background-color: #F1F5F9; }
+        
+        /* Sliders */
+        input[type="range"] { accent-color: #E11D48; }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800" id="appBody">
+
+    <!-- แถบเมนูด้านบน (Header) - เชื่อมต่อ Database -->
+    <header class="glass-header sticky top-0 z-50 px-6 py-4 flex justify-between items-center mb-8">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-xl shadow-md">W</div>
+            <h1 class="text-xl font-bold hidden sm:block">Welfare Master</h1>
+        </div>
+        
+        <div class="flex items-center gap-4">
+            <div class="hidden md:flex flex-col text-right">
+                <span id="displayEmail" class="text-sm font-medium text-slate-700">กำลังโหลด...</span>
+                <span id="displayRef" class="text-xs text-slate-400">Code: โหลด...</span>
+            </div>
+            <div class="bg-amber-100 border border-amber-200 text-amber-600 px-3 py-1.5 rounded-full flex items-center gap-1 font-semibold shadow-sm">
+                💎 <span id="displayPoints">0</span> pts
+            </div>
+            <button onclick="logout()" class="text-sm font-medium text-rose-500 hover:text-rose-700 hover:bg-rose-50 px-3 py-1.5 rounded-lg transition-colors">
+                ออกจากระบบ
+            </button>
+        </div>
+    </header>
+
+    <!-- ส่วนหัวของ Dashboard และปุ่มสลับโหมด -->
+    <div class="max-w-6xl mx-auto px-6 mb-10 flex flex-col md:flex-row justify-between items-center gap-6">
+        <div>
+            <h1 class="text-3xl font-bold text-slate-800 mb-1" id="mainTitle">พอร์ตการลงทุน กบข. ของฉัน</h1>
+            <p class="text-sm text-slate-500">ข้อมูลอัปเดตล่าสุด: วันนี้</p>
+        </div>
+        
+        <div class="bg-white p-1.5 rounded-xl shadow-sm border border-slate-200 flex text-sm">
+            <button onclick="setMode('normal')" id="btnNormal" class="persona-btn active px-6 py-2.5 rounded-lg font-bold">ปกติ (Normal)</button>
+            <button onclick="setMode('senior')" id="btnSenior" class="persona-btn px-6 py-2.5 rounded-lg font-bold">ผู้สูงวัย (Senior)</button>
+            <button onclick="setMode('advanced')" id="btnAdvanced" class="persona-btn px-6 py-2.5 rounded-lg font-bold">เชิงลึก (Advanced)</button>
+        </div>
+    </div>
+
+    <!-- เนื้อหาหลัก (Main Content) -->
+    <div class="max-w-6xl mx-auto px-6 pb-20 space-y-8">
+
+        <!-- 3 วิดเจ็ตหลัก -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div class="stat-card bg-white p-8 rounded-2xl shadow-sm border-t-4 border-indigo-500 relative overflow-hidden">
+                <p class="text-sm text-slate-500 font-bold mb-2 uppercase tracking-wide">ยอดเงินรวมปัจจุบัน</p>
+                <h2 class="text-4xl font-bold text-slate-800 mb-2" id="valTotal">27,475.25 <span class="text-xl font-normal text-slate-500">บาท</span></h2>
+                <p class="text-xs text-indigo-500 font-medium hide-on-senior mt-2">อ้างอิงราคา NAV ณ สิ้นวัน</p>
+            </div>
+            
+            <div class="stat-card bg-white p-8 rounded-2xl shadow-sm border-t-4 border-slate-300">
+                <p class="text-sm text-slate-500 font-bold mb-2 uppercase tracking-wide">ต้นทุนรวม (ยกมา + ระหว่างปี)</p>
+                <h2 class="text-3xl font-bold text-slate-700 mb-2">25,197.60 <span class="text-xl font-normal text-slate-500">บาท</span></h2>
+                <div class="flex items-center justify-between mt-2 hide-on-senior">
+                    <p class="text-xs text-slate-400 font-medium">สกัดข้อมูลอัตโนมัติจาก PDF</p>
+                    <button onclick="openModal('guide-modal')" class="text-[10px] bg-slate-100 text-slate-600 px-2 py-1 rounded font-bold hover:bg-slate-200">แก้ไข / ดูวิธี</button>
+                </div>
+            </div>
+            
+            <div class="stat-card bg-emerald-50 p-8 rounded-2xl shadow-sm border-t-4 border-emerald-500 relative">
+                <p class="text-sm text-emerald-700 font-bold mb-2 uppercase tracking-wide">ผลประโยชน์ (กำไร)</p>
+                <h2 class="text-3xl font-bold text-emerald-600 mb-2" id="valProfit">+2,277.65 <span class="text-xl font-normal text-emerald-500">บาท</span></h2>
+                <p class="text-xs text-emerald-600 font-bold hide-on-senior mt-2 tracking-wider">เติบโต +9.03% จากเงินต้น</p>
+            </div>
+        </div>
+
+        <!-- กราฟโดนัท และ การแจ้งเตือน (ซ่อนในโหมด Senior) -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 hide-on-senior">
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-100">
+                <h3 class="font-bold text-slate-800 mb-6 text-center text-lg">สัดส่วนแผนการลงทุน</h3>
+                <div class="relative h-64 w-full flex justify-center">
+                    <canvas id="allocationChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="bg-indigo-900 p-8 rounded-3xl shadow-lg text-white flex flex-col justify-center relative overflow-hidden">
+                <div class="absolute right-0 top-0 opacity-10 text-9xl -mr-10 -mt-10">🛡️</div>
+                <h3 class="font-bold text-indigo-300 mb-3 uppercase tracking-widest text-sm">Smart Defensive Alert</h3>
+                <p class="text-3xl font-black mb-6">สถานะพอร์ต: <span class="text-emerald-400">ปลอดภัย</span></p>
+                <p class="text-sm text-indigo-100 mb-8 leading-relaxed opacity-90">ระบบ AI ไม่พบความผันผวนรุนแรงในตลาดโลก แผนเงินฝาก 75% และทองคำ 25% ของคุณมีความทนทานต่อสภาวะตลาดปัจจุบันได้ดีเยี่ยม</p>
+                <a href="userPDFscan2.html" class="text-center bg-white text-indigo-900 py-3 rounded-xl font-black hover:bg-indigo-50 transition w-full shadow-lg block">อัปเดตข้อมูล PDF ใหม่</a>
+            </div>
+        </div>
+
+        <!-- โหมดผู้สูงวัย (แสดงเฉพาะตอนกดปุ่ม Senior) -->
+        <div class="show-on-senior bg-blue-50 p-10 rounded-3xl border-2 border-blue-200 text-center shadow-inner mt-8">
+            <div class="text-6xl mb-6">👵</div>
+            <h3 class="text-3xl font-bold text-blue-900 mb-4">สรุปสมุดเงินออมของคุณ</h3>
+            <p class="text-xl text-slate-700 leading-relaxed max-w-2xl mx-auto">
+                "ปัจจุบันคุณมีเงินออมรวม <span class="font-bold text-blue-700">27,475 บาท</span> ซึ่งเพิ่มขึ้นจากเงินต้นของคุณมาแล้ว <span class="font-bold text-emerald-600">2,277 บาท</span> ถือว่าผลประกอบการ <span class="font-bold text-emerald-600 border-b-2 border-emerald-600">เป็นบวกและปลอดภัยครับ</span>"
+            </p>
+        </div>
+
+        <!-- โหมดเชิงลึก (แสดงเฉพาะตอนกดปุ่ม Advanced) -->
+        <div class="show-on-advanced space-y-8 mt-12 border-t-2 border-dashed border-slate-200 pt-12">
+            
+            <div class="flex items-center gap-3 mb-6">
+                <span class="text-3xl">🔥</span>
+                <h2 class="text-2xl font-black text-slate-800 uppercase italic">Advanced Analytics Hub</h2>
+            </div>
+
+            <!-- ตารางจำลองข้อมูล Excel -->
+            <div class="bg-white p-8 rounded-3xl shadow-sm border border-slate-200">
+                <h3 class="font-bold text-slate-800 mb-6 flex items-center text-lg"><span class="mr-3">📊</span> ตารางวิเคราะห์เชิงลึก (Live Data)</h3>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-600">
+                                <th class="p-4 rounded-tl-xl font-bold">แผนการลงทุน</th>
+                                <th class="p-4 text-right font-bold">จำนวนหน่วย (PDF)</th>
+                                <th class="p-4 text-right font-bold">ราคา NAV วันนี้</th>
+                                <th class="p-4 text-right font-black text-indigo-700 rounded-tr-xl">มูลค่าปัจจุบัน</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="border-b">
+                                <td class="p-4 font-medium">แผนเงินฝาก/ตราสารหนี้</td>
+                                <td class="p-4 text-right">957.4381</td>
+                                <td class="p-4 text-right">21.5002</td>
+                                <td class="p-4 text-right font-bold">20,585.12</td>
+                            </tr>
+                            <tr class="border-b bg-amber-50">
+                                <td class="p-4 font-bold text-amber-800">แผนทองคำ</td>
+                                <td class="p-4 text-right font-mono">118.9984</td>
+                                <td class="p-4 text-right font-mono font-bold" id="navGold">57.9010</td>
+                                <td class="p-4 text-right font-black text-amber-600" id="valGold">6,890.13</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Crisis Simulator -->
+            <div class="bg-slate-900 text-white p-10 rounded-3xl shadow-xl relative overflow-hidden">
+                <div class="absolute right-0 top-0 w-64 h-64 bg-rose-500 rounded-full blur-3xl opacity-20 -mr-20 -mt-20"></div>
+                
+                <h3 class="font-black text-rose-400 mb-2 flex items-center text-xl relative z-10"><span class="mr-3 text-2xl">🌪️</span> Crisis Simulator (Stress Test)</h3>
+                <p class="text-sm text-slate-400 mb-8 relative z-10">ทดลองเลื่อนสไลเดอร์เพื่อจำลองราคา NAV ทองคำที่ลดลงรุนแรง เพื่อดูว่าพอร์ตของคุณทนทานได้แค่ไหน</p>
+                
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-8 relative z-10">
+                    <div class="md:col-span-2 bg-white/5 p-6 rounded-2xl border border-white/10 flex flex-col justify-center">
+                        <div class="flex justify-between mb-4">
+                            <span class="text-xs font-bold text-slate-300 uppercase tracking-widest">ราคา NAV ทองคำ</span>
+                            <span class="text-xl font-black text-rose-400" id="goldSliderVal">57.90</span>
+                        </div>
+                        <input type="range" id="goldSlider" min="30" max="60" step="0.5" value="57.9" class="w-full h-3 bg-slate-700 rounded-lg appearance-none cursor-pointer" oninput="updateCrisis(this.value)">
+                        <div class="flex justify-between text-[10px] mt-3 font-bold text-slate-500 uppercase">
+                            <span>วิกฤตหนัก (30.00)</span>
+                            <span>ราคาปัจจุบัน (57.90)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-black/30 p-6 rounded-2xl border border-rose-500/30 text-center flex flex-col justify-center">
+                        <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">กำไรหลังเกิดวิกฤต</span>
+                        <div id="simProfit" class="text-3xl font-black text-emerald-400">+2,277.65</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Modal คำแนะนำ -->
+    <div id="guide-modal" class="modal">
+        <div class="modal-content shadow-2xl">
+            <div class="flex justify-between items-center mb-6 border-b pb-4">
+                <h3 class="text-xl font-black text-indigo-900">🚩 วิธีหาตัวเลขจากใบแจ้งยอด PDF</h3>
+                <button onclick="closeModal('guide-modal')" class="text-slate-400 hover:text-slate-600 font-bold text-2xl">&times;</button>
+            </div>
+            <div class="bg-yellow-50 p-6 rounded-2xl border border-yellow-200 mb-6">
+                <p class="text-sm text-slate-700 leading-relaxed font-bold mb-4">ให้นำตัวเลขจาก <span class="underline uppercase">ช่องเงินต้น</span> ในตารางสรุปส่วนท้าย มาบวกกัน:</p>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs font-black text-center">
+                    <div class="p-3 bg-white rounded-lg border border-yellow-300">เงินสะสม</div>
+                    <div class="p-3 bg-white rounded-lg border border-yellow-300">เงินสมทบ</div>
+                    <div class="p-3 bg-white rounded-lg border border-yellow-300">เงินชดเชย</div>
+                    <div class="p-3 bg-white rounded-lg border border-yellow-300">เงินประเดิม</div>
+                </div>
+            </div>
+            <button onclick="closeModal('guide-modal')" class="w-full bg-slate-900 text-white py-4 rounded-xl font-black uppercase text-sm hover:bg-slate-800 transition-all">เข้าใจแล้ว ปิดหน้าต่าง</button>
+        </div>
+    </div>
+
+    <script>
+        // ---------------------------------------------------------
+        // 1. ตั้งค่า Supabase & Authentication Logic
+        // ---------------------------------------------------------
+        const SUPABASE_URL = 'https://ysvkdzbtxdibaeztqsht.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzdmtkemJ0eGRpYmFlenRxc2h0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1OTA3MDEsImV4cCI6MjA4ODE2NjcwMX0.BXNN_WU1LL61VaVHSw2AaN8Th6D1ZYx6H9azX75Ni1o';
+        const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        async function initDashboard() {
+            try {
+                // เช็กว่ามีการล็อคอินหรือไม่
+                const { data: { session }, error } = await supabase.auth.getSession();
+                
+                if (!session) {
+                    // ถ้ายังไม่ล็อคอิน ให้เด้งกลับไปหน้า login (รองรับ GitHub Pages)
+                    window.location.replace(window.location.href.replace('userDashboard1.html', 'login.html'));
+                    return;
+                }
+
+                // ดึงข้อมูล User จาก Database
+                const userId = session.user.id;
+                const { data: userData, error: dbError } = await supabase
+                    .from('users')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .single();
+
+                if (dbError) throw dbError;
+
+                // นำข้อมูลไปแสดงที่แถบ Header
+                if (userData) {
+                    const userEmail = userData.email || 'ผู้ใช้งานผ่าน LINE';
+                    document.getElementById('displayEmail').innerText = userEmail;
+                    document.getElementById('displayRef').innerText = `รหัสแนะนำ: ${userData.referral_code}`;
+                    document.getElementById('displayPoints').innerText = userData.welfare_points;
+                }
+
+            } catch (err) {
+                console.error('Error:', err.message);
+                window.location.replace(window.location.href.replace('userDashboard1.html', 'login.html'));
+            }
+        }
+
+        async function logout() {
+            const { error } = await supabase.auth.signOut();
+            if (!error) {
+                window.location.replace(window.location.href.replace('userDashboard1.html', 'login.html'));
+            }
+        }
+
+        // ---------------------------------------------------------
+        // 2. UI Logic: Chart & Persona Modes & Simulator
+        // ---------------------------------------------------------
+        let allocationChart;
+        function initChart() {
+            const ctx = document.getElementById('allocationChart').getContext('2d');
+            allocationChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['ตราสารหนี้ (75%)', 'ทองคำ (25%)'],
+                    datasets: [{
+                        data: [20585.12, 6890.13],
+                        backgroundColor: ['#3b82f6', '#f59e0b'],
+                        borderWidth: 0,
+                        hoverOffset: 10
+                    }]
+                },
+                options: {
+                    responsive: true, 
+                    maintainAspectRatio: false,
+                    cutout: '75%',
+                    plugins: { 
+                        legend: { position: 'bottom', labels: { font: { family: "'Prompt'" }, padding: 20 } }
+                    }
+                }
+            });
+        }
+
+        function setMode(mode) {
+            const body = document.getElementById('appBody');
+            const title = document.getElementById('mainTitle');
+            
+            // สลับสถานะของปุ่ม
+            document.querySelectorAll('.persona-btn').forEach(btn => btn.classList.remove('active'));
+            if(mode === 'normal') document.getElementById('btnNormal').classList.add('active');
+            if(mode === 'senior') document.getElementById('btnSenior').classList.add('active');
+            if(mode === 'advanced') document.getElementById('btnAdvanced').classList.add('active');
+
+            // เปลี่ยน Class ที่ Body เพื่อให้ CSS ควบคุมการซ่อน/แสดง
+            body.classList.remove('senior-mode', 'advanced-mode');
+            
+            if (mode === 'senior') {
+                body.classList.add('senior-mode');
+                title.innerText = 'ใบบันทึกสมุดเงินออม';
+            } else if (mode === 'advanced') {
+                body.classList.add('advanced-mode');
+                title.innerText = 'Wealth Analytical Dashboard';
+            } else {
+                title.innerText = 'พอร์ตการลงทุน กบข. ของฉัน';
+            }
+        }
+
+        function updateCrisis(newGoldNav) {
+            // ดึงค่าสมมติฐานเดิม
+            const goldUnits = 118.9984;
+            const baseFixedIncomeValue = 20585.12;
+            const baseCost = 25197.60;
+
+            // คำนวณใหม่แบบ Real-time
+            const newGoldValue = (newGoldNav * goldUnits);
+            const newTotalValue = baseFixedIncomeValue + newGoldValue;
+            const newProfit = newTotalValue - baseCost;
+
+            // อัปเดตตัวเลขบนหน้าจอ
+            document.getElementById('goldSliderVal').innerText = parseFloat(newGoldNav).toFixed(2);
+            document.getElementById('navGold').innerText = parseFloat(newGoldNav).toFixed(4);
+            document.getElementById('valGold').innerText = newGoldValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            document.getElementById('valTotal').innerHTML = `${newTotalValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2})} <span class="text-xl font-normal text-slate-500">บาท</span>`;
+            
+            const profitEl = document.getElementById('valProfit');
+            const simProfitEl = document.getElementById('simProfit');
+            const formattedProfit = newProfit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+            
+            if(newProfit >= 0) {
+                // สถานะปกติ (กำไร)
+                profitEl.innerHTML = `+${formattedProfit} <span class="text-xl font-normal text-emerald-500">บาท</span>`;
+                profitEl.parentElement.className = 'stat-card bg-emerald-50 p-8 rounded-2xl shadow-sm border-t-4 border-emerald-500 relative';
+                profitEl.className = 'text-3xl font-bold text-emerald-600 mb-2';
+                
+                simProfitEl.innerText = `+${formattedProfit}`;
+                simProfitEl.className = 'text-3xl font-black text-emerald-400';
+            } else {
+                // สถานะวิกฤต (ขาดทุน)
+                profitEl.innerHTML = `${formattedProfit} <span class="text-xl font-normal text-rose-500">บาท</span>`;
+                profitEl.parentElement.className = 'stat-card bg-rose-50 p-8 rounded-2xl shadow-sm border-t-4 border-rose-500 relative';
+                profitEl.className = 'text-3xl font-bold text-rose-600 mb-2';
+                
+                simProfitEl.innerText = `${formattedProfit}`;
+                simProfitEl.className = 'text-3xl font-black text-rose-400';
+            }
+
+            // อัปเดตกราฟแบบไม่กระตุก
+            if(allocationChart) {
+                allocationChart.data.datasets[0].data = [baseFixedIncomeValue, newGoldValue];
+                allocationChart.update('none'); 
+            }
+        }
+
+        // Modal Controls
+        function openModal(id) { document.getElementById(id).style.display = 'block'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+        // เริ่มต้นการทำงานพร้อมกันเมื่อหน้าเว็บโหลดเสร็จ
+        window.onload = () => {
+            initChart();
+            initDashboard();
+        };
+    </script>
+</body>
+</html>

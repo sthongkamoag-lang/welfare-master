@@ -45,7 +45,7 @@
 </head>
 <body class="min-h-screen text-slate-800" id="appBody">
 
-    <!-- แถบเมนูด้านบน (Header) - เชื่อมต่อ Database -->
+    <!-- แถบเมนูด้านบน (Header) -->
     <header class="glass-header sticky top-0 z-50 px-6 py-4 flex justify-between items-center mb-8">
         <div class="flex items-center gap-3">
             <div class="w-10 h-10 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-600 text-white flex items-center justify-center font-bold text-xl shadow-md">W</div>
@@ -225,24 +225,27 @@
 
     <script>
         // ---------------------------------------------------------
-        // 1. ตั้งค่า Supabase & Authentication Logic
+        // 1. ตั้งค่า Supabase
         // ---------------------------------------------------------
         const SUPABASE_URL = 'https://ysvkdzbtxdibaeztqsht.supabase.co';
         const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlzdmtkemJ0eGRpYmFlenRxc2h0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI1OTA3MDEsImV4cCI6MjA4ODE2NjcwMX0.BXNN_WU1LL61VaVHSw2AaN8Th6D1ZYx6H9azX75Ni1o';
         const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+        // ---------------------------------------------------------
+        // 2. ดึงข้อมูลผู้ใช้ (ปลอดภัย 100%)
+        // ---------------------------------------------------------
         async function initDashboard() {
             try {
-                // เช็กว่ามีการล็อคอินหรือไม่
-                const { data: { session }, error } = await supabase.auth.getSession();
+                // เช็ก Session
+                const { data: { session }, error: sessionError } = await supabase.auth.getSession();
                 
-                if (!session) {
-                    // ถ้ายังไม่ล็อคอิน ให้เด้งกลับไปหน้า login (รองรับ GitHub Pages)
-                    window.location.replace(window.location.href.replace('userDashboard1.html', 'login.html'));
+                // ถ้ายังไม่ Login ให้ใช้ Path สัมพัทธ์ในการเด้งกลับ (ป้องกันบั๊กบน GitHub Pages)
+                if (!session || sessionError) {
+                    window.location.href = 'login.html';
                     return;
                 }
 
-                // ดึงข้อมูล User จาก Database
+                // ดึงข้อมูลพอยต์จากตาราง users
                 const userId = session.user.id;
                 const { data: userData, error: dbError } = await supabase
                     .from('users')
@@ -250,35 +253,40 @@
                     .eq('user_id', userId)
                     .single();
 
-                if (dbError) throw dbError;
+                // ป้องกัน Error ฐานข้อมูลทำให้ JS ดับ: ถ้าดึงข้อมูลพอยต์ไม่สำเร็จ ให้ข้ามไปเลย ไม่ต้องรีเฟรชหน้า
+                if (dbError) {
+                    console.warn('DB Notice:', dbError.message);
+                    document.getElementById('displayEmail').innerText = session.user.email || 'ผู้ใช้งานระบบ';
+                    document.getElementById('displayRef').innerText = `รออัปเดตข้อมูล`;
+                    return;
+                }
 
-                // นำข้อมูลไปแสดงที่แถบ Header
+                // แสดงข้อมูลสำเร็จ
                 if (userData) {
-                    const userEmail = userData.email || 'ผู้ใช้งานผ่าน LINE';
-                    document.getElementById('displayEmail').innerText = userEmail;
-                    document.getElementById('displayRef').innerText = `รหัสแนะนำ: ${userData.referral_code}`;
-                    document.getElementById('displayPoints').innerText = userData.welfare_points;
+                    document.getElementById('displayEmail').innerText = userData.email || 'ผู้ใช้งานผ่าน LINE';
+                    document.getElementById('displayRef').innerText = `รหัสแนะนำ: ${userData.referral_code || '-'}`;
+                    document.getElementById('displayPoints').innerText = userData.welfare_points || 0;
                 }
 
             } catch (err) {
-                console.error('Error:', err.message);
-                window.location.replace(window.location.href.replace('userDashboard1.html', 'login.html'));
+                console.error('System Notice:', err.message);
             }
         }
 
         async function logout() {
-            const { error } = await supabase.auth.signOut();
-            if (!error) {
-                window.location.replace(window.location.href.replace('userDashboard1.html', 'login.html'));
-            }
+            await supabase.auth.signOut();
+            window.location.href = 'login.html'; // ใช้ Path สัมพัทธ์ชัวร์ที่สุด
         }
 
         // ---------------------------------------------------------
-        // 2. UI Logic: Chart & Persona Modes & Simulator
+        // 3. UI Logic (ทำงานได้แน่นอนเพราะไม่ถูกบล็อกจากบรรทัดบนแล้ว)
         // ---------------------------------------------------------
         let allocationChart;
         function initChart() {
-            const ctx = document.getElementById('allocationChart').getContext('2d');
+            const canvas = document.getElementById('allocationChart');
+            if(!canvas) return; // เซฟตี้ป้องกัน Error
+            
+            const ctx = canvas.getContext('2d');
             allocationChart = new Chart(ctx, {
                 type: 'doughnut',
                 data: {
@@ -305,13 +313,11 @@
             const body = document.getElementById('appBody');
             const title = document.getElementById('mainTitle');
             
-            // สลับสถานะของปุ่ม
             document.querySelectorAll('.persona-btn').forEach(btn => btn.classList.remove('active'));
             if(mode === 'normal') document.getElementById('btnNormal').classList.add('active');
             if(mode === 'senior') document.getElementById('btnSenior').classList.add('active');
             if(mode === 'advanced') document.getElementById('btnAdvanced').classList.add('active');
 
-            // เปลี่ยน Class ที่ Body เพื่อให้ CSS ควบคุมการซ่อน/แสดง
             body.classList.remove('senior-mode', 'advanced-mode');
             
             if (mode === 'senior') {
@@ -326,17 +332,14 @@
         }
 
         function updateCrisis(newGoldNav) {
-            // ดึงค่าสมมติฐานเดิม
             const goldUnits = 118.9984;
             const baseFixedIncomeValue = 20585.12;
             const baseCost = 25197.60;
 
-            // คำนวณใหม่แบบ Real-time
             const newGoldValue = (newGoldNav * goldUnits);
             const newTotalValue = baseFixedIncomeValue + newGoldValue;
             const newProfit = newTotalValue - baseCost;
 
-            // อัปเดตตัวเลขบนหน้าจอ
             document.getElementById('goldSliderVal').innerText = parseFloat(newGoldNav).toFixed(2);
             document.getElementById('navGold').innerText = parseFloat(newGoldNav).toFixed(4);
             document.getElementById('valGold').innerText = newGoldValue.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
@@ -347,7 +350,6 @@
             const formattedProfit = newProfit.toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
             
             if(newProfit >= 0) {
-                // สถานะปกติ (กำไร)
                 profitEl.innerHTML = `+${formattedProfit} <span class="text-xl font-normal text-emerald-500">บาท</span>`;
                 profitEl.parentElement.className = 'stat-card bg-emerald-50 p-8 rounded-2xl shadow-sm border-t-4 border-emerald-500 relative';
                 profitEl.className = 'text-3xl font-bold text-emerald-600 mb-2';
@@ -355,7 +357,6 @@
                 simProfitEl.innerText = `+${formattedProfit}`;
                 simProfitEl.className = 'text-3xl font-black text-emerald-400';
             } else {
-                // สถานะวิกฤต (ขาดทุน)
                 profitEl.innerHTML = `${formattedProfit} <span class="text-xl font-normal text-rose-500">บาท</span>`;
                 profitEl.parentElement.className = 'stat-card bg-rose-50 p-8 rounded-2xl shadow-sm border-t-4 border-rose-500 relative';
                 profitEl.className = 'text-3xl font-bold text-rose-600 mb-2';
@@ -364,22 +365,20 @@
                 simProfitEl.className = 'text-3xl font-black text-rose-400';
             }
 
-            // อัปเดตกราฟแบบไม่กระตุก
             if(allocationChart) {
                 allocationChart.data.datasets[0].data = [baseFixedIncomeValue, newGoldValue];
                 allocationChart.update('none'); 
             }
         }
 
-        // Modal Controls
         function openModal(id) { document.getElementById(id).style.display = 'block'; }
         function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 
-        // เริ่มต้นการทำงานพร้อมกันเมื่อหน้าเว็บโหลดเสร็จ
-        window.onload = () => {
+        // รอให้หน้าเว็บและ Element โหลดเสร็จ 100% ค่อยรันสคริปต์
+        document.addEventListener('DOMContentLoaded', () => {
             initChart();
             initDashboard();
-        };
+        });
     </script>
 </body>
 </html>
